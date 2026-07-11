@@ -31,11 +31,11 @@ The first time this runs, macOS will prompt for **Automation** permission — th
 - `favorite_track(persistent_id, favorited)`, `rate_track(persistent_id, rating)` — rating is 0-100, 20 per star
 - `list_playlists`
 - `play_playlist(name)`
-- `play_track(persistent_id)` — play a track by persistent_id from `search_library` results
+- `play_track(persistent_id)` — play a track by persistent_id (see "Two track identifiers" below)
 - `create_playlist(name)`
 - `list_playlist_tracks(playlist_name, offset, limit)` — paginated (default 50/page)
 - `search_playlist_tracks(playlist_name, query, limit)` — filters server-side inside Music.app, so it's fast even on playlists with thousands of tracks. Prefer this over paging through `list_playlist_tracks` when looking for something specific
-- `add_track_to_playlist(playlist_name, persistent_id)` — `persistent_id` from `search_library`
+- `add_track_to_playlist(playlist_name, persistent_id)` — `persistent_id` (see "Two track identifiers" below)
 - `remove_track_from_playlist(playlist_name, track_id)` — `track_id` (not `persistent_id`!) from `list_playlist_tracks`. **Destructive and irreversible.** Marked `destructiveHint: true` in its tool annotations, and always asks the connecting client to confirm via MCP elicitation before removing anything — if the client doesn't support elicitation, the call will fail rather than silently deleting.
 
 ### Two track identifiers — `id` vs `persistent_id`

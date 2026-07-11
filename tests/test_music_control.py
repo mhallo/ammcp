@@ -133,10 +133,11 @@ class TestSeekAndPlaybackModes:
         _, kwargs = mock_run.call_args
         assert 'shuffleMode = "albums";' in kwargs["input"]
 
-    def test_set_shuffle_rejects_invalid_mode(self, mock_run, cp):
+    def test_set_shuffle_rejects_invalid_mode_without_mutating(self, mock_run, cp):
         mock_run.return_value = cp(stdout="")
         with pytest.raises(ValueError, match="mode must be one of"):
             mc.set_shuffle(True, "bogus")
+        mock_run.assert_not_called()
 
     def test_set_repeat(self, mock_run, cp):
         mock_run.return_value = cp(stdout="")
@@ -157,21 +158,11 @@ class TestFavoriteAndRate:
         assert "favorited = true;" in kwargs["input"]
         assert json.dumps("PID1") in kwargs["input"]
 
-    def test_favorite_track_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
-        with pytest.raises(MusicControlError, match="track not found"):
-            mc.favorite_track("PID999", True)
-
     def test_rate_track_clamps(self, mock_run, cp):
         mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
         mc.rate_track("PID1", 500)
         _, kwargs = mock_run.call_args
         assert "rating = 100;" in kwargs["input"]
-
-    def test_rate_track_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
-        with pytest.raises(MusicControlError, match="track not found"):
-            mc.rate_track("PID999", 50)
 
 
 class TestGetTrackDetails:
@@ -202,11 +193,6 @@ class TestGetTrackDetails:
         assert track.favorited is True
         assert track.played_date is None
 
-    def test_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
-        with pytest.raises(MusicControlError, match="track not found"):
-            mc.get_track_details("PID999")
-
 
 class TestSearchLibrary:
     def test_returns_tracks(self, mock_run, cp):
@@ -233,16 +219,6 @@ class TestPlaylists:
         mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
         mc.play_playlist("Faves")
 
-    def test_play_playlist_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "playlist not found"}))
-        with pytest.raises(MusicControlError, match="playlist not found"):
-            mc.play_playlist("Nope")
-
-    def test_play_track_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
-        with pytest.raises(MusicControlError, match="track not found"):
-            mc.play_track("PID999")
-
     def test_create_playlist(self, mock_run, cp):
         mock_run.return_value = cp(stdout=json.dumps({"id": 5, "name": "New"}))
         assert mc.create_playlist("New") == mc.Playlist(id=5, name="New")
@@ -256,11 +232,6 @@ class TestPlaylists:
         assert mc.list_playlist_tracks("Faves") == [
             mc.Track(id=9, name="T", artist="A", album="Al", persistent_id="PID9")
         ]
-
-    def test_list_playlist_tracks_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "playlist not found"}))
-        with pytest.raises(MusicControlError, match="playlist not found"):
-            mc.list_playlist_tracks("Nope")
 
     def test_list_playlist_tracks_sends_offset_and_limit(self, mock_run, cp):
         mock_run.return_value = cp(stdout=json.dumps({"ok": True, "tracks": []}))
@@ -284,25 +255,46 @@ class TestPlaylists:
             mc.Track(id=9, name="T", artist="A", album="Al", persistent_id="PID9")
         ]
 
-    def test_search_playlist_tracks_not_found_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "playlist not found"}))
-        with pytest.raises(MusicControlError, match="playlist not found"):
-            mc.search_playlist_tracks("Nope", "t")
-
     def test_add_track_to_playlist_success(self, mock_run, cp):
         mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
         mc.add_track_to_playlist("Faves", "PID1")
-
-    def test_add_track_to_playlist_failure_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
-        with pytest.raises(MusicControlError, match="track not found"):
-            mc.add_track_to_playlist("Faves", "PID999")
 
     def test_remove_track_from_playlist_success(self, mock_run, cp):
         mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
         mc.remove_track_from_playlist("Faves", 1)
 
-    def test_remove_track_from_playlist_not_in_playlist_raises(self, mock_run, cp):
-        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not in playlist"}))
-        with pytest.raises(MusicControlError, match="track not in playlist"):
-            mc.remove_track_from_playlist("Faves", 999)
+
+class TestNotFoundErrors:
+    """Every op that looks up a track/playlist by whose() raises
+    MusicControlError with the same {ok:false, error:...} shape on a miss —
+    tested once here instead of once per function."""
+
+    @pytest.mark.parametrize(
+        "call, error",
+        [
+            (lambda: mc.favorite_track("PID999", True), "track not found"),
+            (lambda: mc.rate_track("PID999", 50), "track not found"),
+            (lambda: mc.get_track_details("PID999"), "track not found"),
+            (lambda: mc.play_playlist("Nope"), "playlist not found"),
+            (lambda: mc.play_track("PID999"), "track not found"),
+            (lambda: mc.list_playlist_tracks("Nope"), "playlist not found"),
+            (lambda: mc.search_playlist_tracks("Nope", "t"), "playlist not found"),
+            (lambda: mc.add_track_to_playlist("Faves", "PID999"), "track not found"),
+            (lambda: mc.remove_track_from_playlist("Faves", 999), "track not in playlist"),
+        ],
+        ids=[
+            "favorite_track",
+            "rate_track",
+            "get_track_details",
+            "play_playlist",
+            "play_track",
+            "list_playlist_tracks",
+            "search_playlist_tracks",
+            "add_track_to_playlist",
+            "remove_track_from_playlist",
+        ],
+    )
+    def test_raises_music_control_error(self, mock_run, cp, call, error):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": error}))
+        with pytest.raises(MusicControlError, match=error):
+            call()

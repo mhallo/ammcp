@@ -2,7 +2,9 @@
 
 Each JXA script is a module-level template; `{placeholders}` are filled via
 `.format()` with `json.dumps()`-encoded values, so they're always valid JS
-literals regardless of what the caller passes in.
+literals regardless of what the caller passes in. Every script also gets
+`_JS_HELPERS` prepended (see `_run_jxa`), so any template can call
+`findOne`/`searchTracks` without redeclaring them.
 """
 
 import json
@@ -12,6 +14,40 @@ from .exceptions import MusicControlError
 from .models import Playlist, PlayerStatus, Track
 
 _TIMEOUT = 10
+
+_SHUFFLE_MODES = {"songs", "albums", "groupings"}
+_REPEAT_MODES = {"off", "one", "all"}
+
+# Shared by every script run through _run_jxa. findOne() collapses the
+# "whose() lookup, empty-match means not found" check that most templates
+# below need; searchTracks() collapses the name/artist/album substring
+# search used by both the whole-library and single-playlist search tools.
+_JS_HELPERS = """
+function findOne(collection, clause) {
+    const matches = collection.whose(clause)();
+    return matches.length ? matches[0] : null;
+}
+
+function searchTracks(collection, q, limit) {
+    const seen = new Set();
+    const results = [];
+    for (const field of ["name", "artist", "album"]) {
+        const clause = {};
+        clause[field] = { _contains: q };
+        for (const t of collection.whose(clause)()) {
+            const id = t.id();
+            if (seen.has(id)) continue;
+            seen.add(id);
+            results.push({
+                id, name: t.name(), artist: t.artist(), album: t.album(),
+                persistent_id: t.persistentID()
+            });
+            if (results.length >= limit) return results;
+        }
+    }
+    return results;
+}
+"""
 
 _PLAY = 'Application("Music").play();'
 _PAUSE = 'Application("Music").pause();'
@@ -43,25 +79,7 @@ JSON.stringify(result);
 
 _SEARCH_LIBRARY = """
 const app = Application("Music");
-const q = {query};
-const seen = new Set();
-const results = [];
-outer:
-for (const field of ["name", "artist", "album"]) {{
-    const clause = {{}};
-    clause[field] = {{_contains: q}};
-    for (const t of app.tracks.whose(clause)()) {{
-        const id = t.id();
-        if (seen.has(id)) continue;
-        seen.add(id);
-        results.push({{
-            id, name: t.name(), artist: t.artist(), album: t.album(),
-            persistent_id: t.persistentID()
-        }});
-        if (results.length >= {limit}) break outer;
-    }}
-}}
-JSON.stringify(results);
+JSON.stringify(searchTracks(app.tracks, {query}, {limit}));
 """
 
 _LIST_PLAYLISTS = """
@@ -71,22 +89,22 @@ JSON.stringify(app.playlists().map(p => ({ id: p.id(), name: p.name() })));
 
 _PLAY_PLAYLIST = """
 const app = Application("Music");
-const matches = app.playlists.whose({{name: {name}}})();
-if (matches.length === 0) {{
+const p = findOne(app.playlists, {{name: {name}}});
+if (!p) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
-    app.play(matches[0]);
+    app.play(p);
     JSON.stringify({{ok: true}});
 }}
 """
 
 _PLAY_TRACK = """
 const app = Application("Music");
-const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
-if (matches.length === 0) {{
+const t = findOne(app.tracks, {{persistentID: {persistent_id}}});
+if (!t) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
-    app.play(matches[0]);
+    app.play(t);
     JSON.stringify({{ok: true}});
 }}
 """
@@ -99,11 +117,11 @@ JSON.stringify({{id: p.id(), name: p.name()}});
 
 _LIST_PLAYLIST_TRACKS = """
 const app = Application("Music");
-const playlists = app.playlists.whose({{name: {playlist_name}}})();
-if (playlists.length === 0) {{
+const p = findOne(app.playlists, {{name: {playlist_name}}});
+if (!p) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
-    const page = playlists[0].tracks().slice({offset}, {offset} + {limit});
+    const page = p.tracks().slice({offset}, {offset} + {limit});
     const tracks = page.map(t => ({{
         id: t.id(), name: t.name(), artist: t.artist(), album: t.album(),
         persistent_id: t.persistentID()
@@ -114,57 +132,39 @@ if (playlists.length === 0) {{
 
 _SEARCH_PLAYLIST_TRACKS = """
 const app = Application("Music");
-const playlists = app.playlists.whose({{name: {playlist_name}}})();
-if (playlists.length === 0) {{
+const p = findOne(app.playlists, {{name: {playlist_name}}});
+if (!p) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
-    const q = {query};
-    const seen = new Set();
-    const results = [];
-    outer:
-    for (const field of ["name", "artist", "album"]) {{
-        const clause = {{}};
-        clause[field] = {{_contains: q}};
-        for (const t of playlists[0].tracks.whose(clause)()) {{
-            const id = t.id();
-            if (seen.has(id)) continue;
-            seen.add(id);
-            results.push({{
-                id, name: t.name(), artist: t.artist(), album: t.album(),
-                persistent_id: t.persistentID()
-            }});
-            if (results.length >= {limit}) break outer;
-        }}
-    }}
-    JSON.stringify({{ok: true, tracks: results}});
+    JSON.stringify({{ok: true, tracks: searchTracks(p.tracks, {query}, {limit})}});
 }}
 """
 
 _ADD_TRACK_TO_PLAYLIST = """
 const app = Application("Music");
-const tracks = app.tracks.whose({{persistentID: {persistent_id}}})();
-const playlists = app.playlists.whose({{name: {playlist_name}}})();
-if (tracks.length === 0) {{
+const t = findOne(app.tracks, {{persistentID: {persistent_id}}});
+const p = findOne(app.playlists, {{name: {playlist_name}}});
+if (!t) {{
     JSON.stringify({{ok: false, error: "track not found"}});
-}} else if (playlists.length === 0) {{
+}} else if (!p) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
-    app.duplicate(tracks[0], {{to: playlists[0]}});
+    app.duplicate(t, {{to: p}});
     JSON.stringify({{ok: true}});
 }}
 """
 
 _REMOVE_TRACK_FROM_PLAYLIST = """
 const app = Application("Music");
-const playlists = app.playlists.whose({{name: {playlist_name}}})();
-if (playlists.length === 0) {{
+const p = findOne(app.playlists, {{name: {playlist_name}}});
+if (!p) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
-    const matches = playlists[0].tracks.whose({{id: {track_id}}})();
-    if (matches.length === 0) {{
+    const t = findOne(p.tracks, {{id: {track_id}}});
+    if (!t) {{
         JSON.stringify({{ok: false, error: "track not in playlist"}});
     }} else {{
-        app.delete(matches[0]);
+        app.delete(t);
         JSON.stringify({{ok: true}});
     }}
 }}
@@ -177,33 +177,32 @@ _SET_REPEAT = 'Application("Music").songRepeat = {mode}; void 0;'
 
 _FAVORITE_TRACK = """
 const app = Application("Music");
-const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
-if (matches.length === 0) {{
+const t = findOne(app.tracks, {{persistentID: {persistent_id}}});
+if (!t) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
-    matches[0].favorited = {favorited};
+    t.favorited = {favorited};
     JSON.stringify({{ok: true}});
 }}
 """
 
 _RATE_TRACK = """
 const app = Application("Music");
-const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
-if (matches.length === 0) {{
+const t = findOne(app.tracks, {{persistentID: {persistent_id}}});
+if (!t) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
-    matches[0].rating = {rating};
+    t.rating = {rating};
     JSON.stringify({{ok: true}});
 }}
 """
 
 _GET_TRACK_DETAILS = """
 const app = Application("Music");
-const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
-if (matches.length === 0) {{
+const t = findOne(app.tracks, {{persistentID: {persistent_id}}});
+if (!t) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
-    const t = matches[0];
     JSON.stringify({{ok: true, track: {{
         id: t.id(), name: t.name(), artist: t.artist(), album: t.album(),
         persistent_id: t.persistentID(),
@@ -219,7 +218,7 @@ if (matches.length === 0) {{
 def _run_jxa(script: str):
     result = subprocess.run(
         ["osascript", "-l", "JavaScript"],
-        input=script,
+        input=_JS_HELPERS + script,
         capture_output=True,
         text=True,
         timeout=_TIMEOUT,
@@ -233,6 +232,11 @@ def _run_jxa(script: str):
 def _raise_if_not_ok(result: dict) -> None:
     if not result.get("ok", True):
         raise MusicControlError(result.get("error", "operation failed"))
+
+
+def _tracks_from(result: dict) -> list[Track]:
+    _raise_if_not_ok(result)
+    return [Track(**t) for t in result["tracks"]]
 
 
 def play() -> None:
@@ -310,9 +314,7 @@ def list_playlist_tracks(playlist_name: str, offset: int = 0, limit: int = 50) -
         offset=json.dumps(max(0, int(offset))),
         limit=json.dumps(max(1, int(limit))),
     )
-    result = _run_jxa(script)
-    _raise_if_not_ok(result)
-    return [Track(**t) for t in result["tracks"]]
+    return _tracks_from(_run_jxa(script))
 
 
 def search_playlist_tracks(playlist_name: str, query: str, limit: int = 20) -> list[Track]:
@@ -321,9 +323,7 @@ def search_playlist_tracks(playlist_name: str, query: str, limit: int = 20) -> l
         query=json.dumps(query),
         limit=json.dumps(max(1, int(limit))),
     )
-    result = _run_jxa(script)
-    _raise_if_not_ok(result)
-    return [Track(**t) for t in result["tracks"]]
+    return _tracks_from(_run_jxa(script))
 
 
 def add_track_to_playlist(playlist_name: str, persistent_id: str) -> None:
@@ -345,19 +345,15 @@ def remove_track_from_playlist(playlist_name: str, track_id: int) -> None:
     _raise_if_not_ok(_run_jxa(script))
 
 
-_SHUFFLE_MODES = {"songs", "albums", "groupings"}
-_REPEAT_MODES = {"off", "one", "all"}
-
-
 def seek_to(seconds: float) -> None:
     _run_jxa(_SEEK_TO.format(seconds=json.dumps(max(0.0, float(seconds)))))
 
 
 def set_shuffle(enabled: bool, mode: str | None = None) -> None:
+    if mode is not None and mode not in _SHUFFLE_MODES:
+        raise ValueError(f"mode must be one of {sorted(_SHUFFLE_MODES)}")
     _run_jxa(_SET_SHUFFLE_ENABLED.format(enabled=json.dumps(bool(enabled))))
     if mode is not None:
-        if mode not in _SHUFFLE_MODES:
-            raise ValueError(f"mode must be one of {sorted(_SHUFFLE_MODES)}")
         _run_jxa(_SET_SHUFFLE_MODE.format(mode=json.dumps(mode)))
 
 

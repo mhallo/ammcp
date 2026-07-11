@@ -17,12 +17,7 @@ def cp():
 
 @pytest.fixture
 def mock_run(monkeypatch):
-    """Replace subprocess.run inside ammcp.music_control with a MagicMock.
-
-    Configure `mock_run.return_value` with `cp(...)` and inspect
-    `mock_run.call_args` to check the JXA script/args that were sent.
-    Keeps tests from touching the real Music.app.
-    """
+    """Replace subprocess.run in ammcp.music_control so tests don't touch the real Music.app."""
     mock = MagicMock()
     monkeypatch.setattr("ammcp.music_control.subprocess.run", mock)
     return mock
