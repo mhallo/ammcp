@@ -23,14 +23,26 @@ The first time this runs, macOS will prompt for **Automation** permission — th
 - `play`, `pause`, `play_pause`, `next_track`, `previous_track`
 - `get_current_track` — name/artist/album/duration/position/player state
 - `set_volume(level)`, `get_volume`
+- `seek_to(seconds)` — seek within the current track
+- `set_shuffle(enabled, mode)` — `mode` is `"songs"`, `"albums"`, or `"groupings"`
+- `set_repeat(mode)` — `"off"`, `"one"`, or `"all"`
 - `search_library(query, limit)` — searches local library by name/artist/album
+- `get_track_details(track_id)` — full metadata for one track (genre, year, bpm, date added, play/skip counts, rating, favorited). Omitted from list/search results to keep those fast — each extra field is a separate round-trip to Music.app per track, so it only makes sense to fetch them one track at a time
+- `favorite_track(track_id, favorited)`, `rate_track(track_id, rating)` — rating is 0-100, 20 per star
 - `list_playlists`
 - `play_playlist(name)`
 - `play_track(track_id)` — play a track by id from `search_library` results
 - `create_playlist(name)`
-- `list_playlist_tracks(playlist_name)` — returns tracks with **playlist-scoped** ids (Music.app assigns a new id when a track is added to a playlist, so these are not the same ids `search_library` returns)
+- `list_playlist_tracks(playlist_name, offset, limit)` — paginated (default 50/page). Returns tracks with **playlist-scoped** ids (Music.app assigns a new id when a track is added to a playlist, so these are not the same ids `search_library` returns)
+- `search_playlist_tracks(playlist_name, query, limit)` — filters server-side inside Music.app, so it's fast even on playlists with thousands of tracks. Prefer this over paging through `list_playlist_tracks` when looking for something specific
 - `add_track_to_playlist(playlist_name, track_id)` — `track_id` from `search_library`
 - `remove_track_from_playlist(playlist_name, track_id)` — `track_id` from `list_playlist_tracks`. **Destructive and irreversible.** Marked `destructiveHint: true` in its tool annotations, and always asks the connecting client to confirm via MCP elicitation before removing anything — if the client doesn't support elicitation, the call will fail rather than silently deleting.
+
+### Not scriptable (verified, not just undocumented)
+
+- **EQ enable/preset** — `EQ enabled` can't be set at all in the current Music.app, even from plain AppleScript (`Can't set EQ enabled`, error -10006). Apple appears to have locked this down at the app level.
+- **AirPlay output device selection** — `airplayDevices` can be listed (and looks settable via `.selected`) but wasn't wired up here; a reasonable follow-up if you want to route playback to another device.
+- Music.app's native `search` command errors over JXA (`Can't convert types`) — the `whose()`-based filtering used throughout this project is the working alternative.
 
 ## Tests
 

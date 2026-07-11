@@ -82,6 +82,122 @@ class TestVolume:
         assert mc.get_volume() == 73
 
 
+class TestAssignmentScriptsDontLeakOutput:
+    """osascript prints a script's final expression value; a bare property
+    assignment (`x = y;`) is not valid JSON once printed (worse, a bare
+    string like "songs" isn't even accidentally-valid JSON like a number
+    would be). Every void/mutating script must end on something that
+    evaluates to undefined so stdout stays empty."""
+
+    @pytest.mark.parametrize(
+        "script_name",
+        [
+            "_SET_VOLUME",
+            "_SEEK_TO",
+            "_SET_SHUFFLE_ENABLED",
+            "_SET_SHUFFLE_MODE",
+            "_SET_REPEAT",
+        ],
+    )
+    def test_ends_with_void_0(self, script_name):
+        script = getattr(mc, script_name).strip()
+        assert script.endswith("void 0;"), script
+
+
+class TestSeekAndPlaybackModes:
+    def test_seek_to_clamps_negative(self, mock_run, cp):
+        mock_run.return_value = cp(stdout="")
+        mc.seek_to(-5)
+        _, kwargs = mock_run.call_args
+        assert "= 0.0;" in kwargs["input"]
+
+    def test_set_shuffle_enabled_only(self, mock_run, cp):
+        mock_run.return_value = cp(stdout="")
+        mc.set_shuffle(True)
+        assert mock_run.call_count == 1
+        _, kwargs = mock_run.call_args
+        assert "shuffleEnabled = true;" in kwargs["input"]
+
+    def test_set_shuffle_enabled_and_mode(self, mock_run, cp):
+        mock_run.return_value = cp(stdout="")
+        mc.set_shuffle(True, "albums")
+        assert mock_run.call_count == 2
+        _, kwargs = mock_run.call_args
+        assert 'shuffleMode = "albums";' in kwargs["input"]
+
+    def test_set_shuffle_rejects_invalid_mode(self, mock_run, cp):
+        mock_run.return_value = cp(stdout="")
+        with pytest.raises(ValueError, match="mode must be one of"):
+            mc.set_shuffle(True, "bogus")
+
+    def test_set_repeat(self, mock_run, cp):
+        mock_run.return_value = cp(stdout="")
+        mc.set_repeat("all")
+        _, kwargs = mock_run.call_args
+        assert 'songRepeat = "all";' in kwargs["input"]
+
+    def test_set_repeat_rejects_invalid_mode(self, mock_run, cp):
+        with pytest.raises(ValueError, match="mode must be one of"):
+            mc.set_repeat("bogus")
+
+
+class TestFavoriteAndRate:
+    def test_favorite_track_success(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
+        mc.favorite_track(1, True)
+        _, kwargs = mock_run.call_args
+        assert "favorited = true;" in kwargs["input"]
+
+    def test_favorite_track_not_found_raises(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
+        with pytest.raises(MusicControlError, match="track not found"):
+            mc.favorite_track(999, True)
+
+    def test_rate_track_clamps(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
+        mc.rate_track(1, 500)
+        _, kwargs = mock_run.call_args
+        assert "rating = 100;" in kwargs["input"]
+
+    def test_rate_track_not_found_raises(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
+        with pytest.raises(MusicControlError, match="track not found"):
+            mc.rate_track(999, 50)
+
+
+class TestGetTrackDetails:
+    def test_returns_full_track(self, mock_run, cp):
+        payload = {
+            "ok": True,
+            "track": {
+                "id": 1,
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "genre": "Metal",
+                "year": 1996,
+                "bpm": 0,
+                "date_added": "2025-10-28T00:55:02.000Z",
+                "played_count": 3,
+                "played_date": None,
+                "skipped_count": 0,
+                "rating": 60,
+                "favorited": True,
+            },
+        }
+        mock_run.return_value = cp(stdout=json.dumps(payload))
+        track = mc.get_track_details(1)
+        assert track.genre == "Metal"
+        assert track.year == 1996
+        assert track.favorited is True
+        assert track.played_date is None
+
+    def test_not_found_raises(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "track not found"}))
+        with pytest.raises(MusicControlError, match="track not found"):
+            mc.get_track_details(999)
+
+
 class TestSearchLibrary:
     def test_returns_tracks(self, mock_run, cp):
         payload = [{"id": 1, "name": "A", "artist": "B", "album": "C"}]

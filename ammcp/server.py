@@ -97,12 +97,58 @@ def get_volume() -> int:
 
 @mcp.tool(
     annotations=ToolAnnotations(
+        title="Seek To", readOnlyHint=False, destructiveHint=False, idempotentHint=True
+    )
+)
+def seek_to(seconds: float) -> str:
+    """Seek to a position (in seconds) within the currently playing track."""
+    mc.seek_to(seconds)
+    return f"Seeked to {seconds}s"
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Set Shuffle", readOnlyHint=False, destructiveHint=False, idempotentHint=True
+    )
+)
+def set_shuffle(enabled: bool, mode: str | None = None) -> str:
+    """Turn shuffle on/off, optionally also setting the shuffle mode
+    ("songs", "albums", or "groupings")."""
+    mc.set_shuffle(enabled, mode)
+    return f"Shuffle {'enabled' if enabled else 'disabled'}" + (f" ({mode})" if mode else "")
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Set Repeat", readOnlyHint=False, destructiveHint=False, idempotentHint=True
+    )
+)
+def set_repeat(mode: str) -> str:
+    """Set repeat mode: "off", "one" (repeat current track), or "all"."""
+    mc.set_repeat(mode)
+    return f"Repeat set to '{mode}'"
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
         title="Search Library", readOnlyHint=True, destructiveHint=False, idempotentHint=True
     )
 )
 def search_library(query: str, limit: int = 20) -> list[mc.Track]:
     """Search the local Apple Music library by track name, artist, or album."""
     return mc.search_library(query, limit)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Get Track Details", readOnlyHint=True, destructiveHint=False, idempotentHint=True
+    )
+)
+def get_track_details(track_id: int) -> mc.Track:
+    """Get full metadata for a single track by its library-wide id, including
+    genre, year, bpm, date added, play/skip counts, rating, and favorited
+    status — fields the list/search tools omit to stay fast."""
+    return mc.get_track_details(track_id)
 
 
 @mcp.tool(
@@ -135,6 +181,28 @@ def play_track(track_id: int) -> str:
     """Play a specific track by its library-wide id (from search_library results)."""
     mc.play_track_by_id(track_id)
     return "Playing track"
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Favorite Track", readOnlyHint=False, destructiveHint=False, idempotentHint=True
+    )
+)
+def favorite_track(track_id: int, favorited: bool = True) -> str:
+    """Favorite (or unfavorite) a track by its library-wide id."""
+    mc.favorite_track(track_id, favorited)
+    return f"{'Favorited' if favorited else 'Unfavorited'} track"
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Rate Track", readOnlyHint=False, destructiveHint=False, idempotentHint=True
+    )
+)
+def rate_track(track_id: int, rating: int) -> str:
+    """Set a track's star rating, 0-100 (20 per star, e.g. 100 = 5 stars, 0 = no rating)."""
+    mc.rate_track(track_id, rating)
+    return f"Rating set to {rating}"
 
 
 @mcp.tool(

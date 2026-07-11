@@ -20,7 +20,11 @@ _NEXT_TRACK = 'Application("Music").nextTrack();'
 _PREVIOUS_TRACK = 'Application("Music").previousTrack();'
 
 _GET_VOLUME = 'JSON.stringify({volume: Application("Music").soundVolume()});'
-_SET_VOLUME = 'Application("Music").soundVolume = {level};'
+# osascript prints the value of a script's final expression; a bare
+# assignment evaluates to the assigned value, which isn't valid JSON for
+# strings (and only accidentally valid for numbers/booleans). Ending on
+# `void 0` keeps these void calls' stdout empty.
+_SET_VOLUME = 'Application("Music").soundVolume = {level}; void 0;'
 
 _CURRENT_TRACK = """
 const app = Application("Music");
@@ -154,6 +158,50 @@ if (playlists.length === 0) {{
 }}
 """
 
+_SEEK_TO = 'Application("Music").playerPosition = {seconds}; void 0;'
+_SET_SHUFFLE_ENABLED = 'Application("Music").shuffleEnabled = {enabled}; void 0;'
+_SET_SHUFFLE_MODE = 'Application("Music").shuffleMode = {mode}; void 0;'
+_SET_REPEAT = 'Application("Music").songRepeat = {mode}; void 0;'
+
+_FAVORITE_TRACK = """
+const app = Application("Music");
+const matches = app.tracks.whose({{id: {track_id}}})();
+if (matches.length === 0) {{
+    JSON.stringify({{ok: false, error: "track not found"}});
+}} else {{
+    matches[0].favorited = {favorited};
+    JSON.stringify({{ok: true}});
+}}
+"""
+
+_RATE_TRACK = """
+const app = Application("Music");
+const matches = app.tracks.whose({{id: {track_id}}})();
+if (matches.length === 0) {{
+    JSON.stringify({{ok: false, error: "track not found"}});
+}} else {{
+    matches[0].rating = {rating};
+    JSON.stringify({{ok: true}});
+}}
+"""
+
+_GET_TRACK_DETAILS = """
+const app = Application("Music");
+const matches = app.tracks.whose({{id: {track_id}}})();
+if (matches.length === 0) {{
+    JSON.stringify({{ok: false, error: "track not found"}});
+}} else {{
+    const t = matches[0];
+    JSON.stringify({{ok: true, track: {{
+        id: t.id(), name: t.name(), artist: t.artist(), album: t.album(),
+        genre: t.genre(), year: t.year(), bpm: t.bpm(),
+        date_added: t.dateAdded(), played_count: t.playedCount(),
+        played_date: t.playedDate(), skipped_count: t.skippedCount(),
+        rating: t.rating(), favorited: t.favorited()
+    }}}});
+}}
+"""
+
 
 def _run_jxa(script: str):
     result = subprocess.run(
@@ -281,3 +329,43 @@ def remove_track_from_playlist(playlist_name: str, track_id: int) -> None:
         playlist_name=json.dumps(playlist_name), track_id=json.dumps(track_id)
     )
     _raise_if_not_ok(_run_jxa(script))
+
+
+_SHUFFLE_MODES = {"songs", "albums", "groupings"}
+_REPEAT_MODES = {"off", "one", "all"}
+
+
+def seek_to(seconds: float) -> None:
+    _run_jxa(_SEEK_TO.format(seconds=json.dumps(max(0.0, float(seconds)))))
+
+
+def set_shuffle(enabled: bool, mode: str | None = None) -> None:
+    _run_jxa(_SET_SHUFFLE_ENABLED.format(enabled=json.dumps(bool(enabled))))
+    if mode is not None:
+        if mode not in _SHUFFLE_MODES:
+            raise ValueError(f"mode must be one of {sorted(_SHUFFLE_MODES)}")
+        _run_jxa(_SET_SHUFFLE_MODE.format(mode=json.dumps(mode)))
+
+
+def set_repeat(mode: str) -> None:
+    if mode not in _REPEAT_MODES:
+        raise ValueError(f"mode must be one of {sorted(_REPEAT_MODES)}")
+    _run_jxa(_SET_REPEAT.format(mode=json.dumps(mode)))
+
+
+def favorite_track(track_id: int, favorited: bool = True) -> None:
+    script = _FAVORITE_TRACK.format(track_id=json.dumps(track_id), favorited=json.dumps(bool(favorited)))
+    _raise_if_not_ok(_run_jxa(script))
+
+
+def rate_track(track_id: int, rating: int) -> None:
+    rating = max(0, min(100, int(rating)))
+    script = _RATE_TRACK.format(track_id=json.dumps(track_id), rating=json.dumps(rating))
+    _raise_if_not_ok(_run_jxa(script))
+
+
+def get_track_details(track_id: int) -> Track:
+    script = _GET_TRACK_DETAILS.format(track_id=json.dumps(track_id))
+    result = _run_jxa(script)
+    _raise_if_not_ok(result)
+    return Track(**result["track"])

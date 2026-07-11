@@ -31,6 +31,7 @@ class TestToolAnnotations:
             "list_playlists",
             "list_playlist_tracks",
             "search_playlist_tracks",
+            "get_track_details",
         }
 
 
@@ -81,6 +82,26 @@ class TestToolsDelegateToMusicControl:
         )
         async with create_connected_server_and_client_session(server_module.mcp._mcp_server) as client:
             result = await client.call_tool("search_library", {"query": "a"})
-        assert result.structuredContent == {
-            "result": [{"id": 1, "name": "A", "artist": "B", "album": "C"}]
-        }
+        [track] = result.structuredContent["result"]
+        assert track["id"] == 1
+        assert track["name"] == "A"
+        assert track["artist"] == "B"
+        assert track["album"] == "C"
+
+    async def test_favorite_track(self, monkeypatch):
+        favorite_mock = MagicMock()
+        monkeypatch.setattr(server_module.mc, "favorite_track", favorite_mock)
+        async with create_connected_server_and_client_session(server_module.mcp._mcp_server) as client:
+            result = await client.call_tool("favorite_track", {"track_id": 1, "favorited": False})
+        assert "Unfavorited" in result.content[0].text
+        favorite_mock.assert_called_once_with(1, False)
+
+    async def test_get_track_details(self, monkeypatch):
+        monkeypatch.setattr(
+            server_module.mc,
+            "get_track_details",
+            MagicMock(return_value=Track(id=1, name="A", artist="B", album="C", genre="Metal")),
+        )
+        async with create_connected_server_and_client_session(server_module.mcp._mcp_server) as client:
+            result = await client.call_tool("get_track_details", {"track_id": 1})
+        assert result.structuredContent["genre"] == "Metal"
