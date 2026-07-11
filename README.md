@@ -27,6 +27,10 @@ The first time this runs, macOS will prompt for **Automation** permission — th
 - `list_playlists`
 - `play_playlist(name)`
 - `play_track(track_id)` — play a track by id from `search_library` results
+- `create_playlist(name)`
+- `list_playlist_tracks(playlist_name)` — returns tracks with **playlist-scoped** ids (Music.app assigns a new id when a track is added to a playlist, so these are not the same ids `search_library` returns)
+- `add_track_to_playlist(playlist_name, track_id)` — `track_id` from `search_library`
+- `remove_track_from_playlist(playlist_name, track_id)` — `track_id` from `list_playlist_tracks`. **Destructive and irreversible.** Marked `destructiveHint: true` in its tool annotations, and always asks the connecting client to confirm via MCP elicitation before removing anything — if the client doesn't support elicitation, the call will fail rather than silently deleting.
 
 ## Use with Claude Desktop
 
@@ -48,5 +52,5 @@ Restart Claude Desktop. The first tool call will trigger the Automation permissi
 ## Known limitations
 
 - `search_library` only searches your local library, not the full Apple Music catalog (that would need the Apple Music API/MusicKit).
-- No queue/"Up Next" manipulation yet.
-- No playlist creation/editing yet.
+- No queue/"Up Next" manipulation — Music.app no longer exposes that via AppleScript on modern macOS.
+- No playlist deletion (only track removal) or reordering yet.

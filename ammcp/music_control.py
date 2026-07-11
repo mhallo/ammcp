@@ -81,6 +81,53 @@ if (matches.length === 0) {{
 }}
 """
 
+_CREATE_PLAYLIST = """
+const app = Application("Music");
+const p = app.make({{new: "playlist", withProperties: {{name: {name}}}}});
+JSON.stringify({{id: p.id(), name: p.name()}});
+"""
+
+_LIST_PLAYLIST_TRACKS = """
+const app = Application("Music");
+const playlists = app.playlists.whose({{name: {playlist_name}}})();
+if (playlists.length === 0) {{
+    JSON.stringify({{ok: false, error: "playlist not found"}});
+}} else {{
+    const tracks = playlists[0].tracks().map(t => ({{ id: t.id(), name: t.name(), artist: t.artist(), album: t.album() }}));
+    JSON.stringify({{ok: true, tracks}});
+}}
+"""
+
+_ADD_TRACK_TO_PLAYLIST = """
+const app = Application("Music");
+const tracks = app.tracks.whose({{id: {track_id}}})();
+const playlists = app.playlists.whose({{name: {playlist_name}}})();
+if (tracks.length === 0) {{
+    JSON.stringify({{ok: false, error: "track not found"}});
+}} else if (playlists.length === 0) {{
+    JSON.stringify({{ok: false, error: "playlist not found"}});
+}} else {{
+    app.duplicate(tracks[0], {{to: playlists[0]}});
+    JSON.stringify({{ok: true}});
+}}
+"""
+
+_REMOVE_TRACK_FROM_PLAYLIST = """
+const app = Application("Music");
+const playlists = app.playlists.whose({{name: {playlist_name}}})();
+if (playlists.length === 0) {{
+    JSON.stringify({{ok: false, error: "playlist not found"}});
+}} else {{
+    const matches = playlists[0].tracks.whose({{id: {track_id}}})();
+    if (matches.length === 0) {{
+        JSON.stringify({{ok: false, error: "track not in playlist"}});
+    }} else {{
+        app.delete(matches[0]);
+        JSON.stringify({{ok: true}});
+    }}
+}}
+"""
+
 
 def _run_jxa(script: str):
     result = subprocess.run(
@@ -157,4 +204,34 @@ def play_playlist(name: str) -> None:
 
 def play_track_by_id(track_id: int) -> None:
     script = _PLAY_TRACK_BY_ID.format(track_id=json.dumps(track_id))
+    _raise_if_not_ok(_run_jxa(script))
+
+
+def create_playlist(name: str) -> Playlist:
+    script = _CREATE_PLAYLIST.format(name=json.dumps(name))
+    return Playlist(**_run_jxa(script))
+
+
+def list_playlist_tracks(playlist_name: str) -> list[Track]:
+    script = _LIST_PLAYLIST_TRACKS.format(playlist_name=json.dumps(playlist_name))
+    result = _run_jxa(script)
+    _raise_if_not_ok(result)
+    return [Track(**t) for t in result["tracks"]]
+
+
+def add_track_to_playlist(playlist_name: str, track_id: int) -> None:
+    # track_id is a library-wide id (e.g. from search_library).
+    script = _ADD_TRACK_TO_PLAYLIST.format(
+        playlist_name=json.dumps(playlist_name), track_id=json.dumps(track_id)
+    )
+    _raise_if_not_ok(_run_jxa(script))
+
+
+def remove_track_from_playlist(playlist_name: str, track_id: int) -> None:
+    # track_id here is playlist-scoped, not the library-wide id — Music.app
+    # assigns a new id when a track is duplicated into a playlist, so this
+    # must come from list_playlist_tracks, not search_library.
+    script = _REMOVE_TRACK_FROM_PLAYLIST.format(
+        playlist_name=json.dumps(playlist_name), track_id=json.dumps(track_id)
+    )
     _raise_if_not_ok(_run_jxa(script))
