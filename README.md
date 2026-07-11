@@ -37,7 +37,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "apple-music": {
       "command": "uv",
-      "args": ["--directory", "/Users/matthallowell/git/ammcp", "run", "ammcp"]
+      "args": ["--directory", "/<your-clone-path>/ammcp", "run", "ammcp"]
     }
   }
 }
