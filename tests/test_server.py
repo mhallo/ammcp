@@ -78,7 +78,7 @@ class TestToolsDelegateToMusicControl:
         monkeypatch.setattr(
             server_module.mc,
             "search_library",
-            MagicMock(return_value=[Track(id=1, name="A", artist="B", album="C")]),
+            MagicMock(return_value=[Track(id=1, name="A", artist="B", album="C", persistent_id="PID1")]),
         )
         async with create_connected_server_and_client_session(server_module.mcp._mcp_server) as client:
             result = await client.call_tool("search_library", {"query": "a"})
@@ -87,21 +87,28 @@ class TestToolsDelegateToMusicControl:
         assert track["name"] == "A"
         assert track["artist"] == "B"
         assert track["album"] == "C"
+        assert track["persistent_id"] == "PID1"
 
     async def test_favorite_track(self, monkeypatch):
         favorite_mock = MagicMock()
         monkeypatch.setattr(server_module.mc, "favorite_track", favorite_mock)
         async with create_connected_server_and_client_session(server_module.mcp._mcp_server) as client:
-            result = await client.call_tool("favorite_track", {"track_id": 1, "favorited": False})
+            result = await client.call_tool(
+                "favorite_track", {"persistent_id": "PID1", "favorited": False}
+            )
         assert "Unfavorited" in result.content[0].text
-        favorite_mock.assert_called_once_with(1, False)
+        favorite_mock.assert_called_once_with("PID1", False)
 
     async def test_get_track_details(self, monkeypatch):
         monkeypatch.setattr(
             server_module.mc,
             "get_track_details",
-            MagicMock(return_value=Track(id=1, name="A", artist="B", album="C", genre="Metal")),
+            MagicMock(
+                return_value=Track(
+                    id=1, name="A", artist="B", album="C", persistent_id="PID1", genre="Metal"
+                )
+            ),
         )
         async with create_connected_server_and_client_session(server_module.mcp._mcp_server) as client:
-            result = await client.call_tool("get_track_details", {"track_id": 1})
+            result = await client.call_tool("get_track_details", {"persistent_id": "PID1"})
         assert result.structuredContent["genre"] == "Metal"

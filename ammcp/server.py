@@ -144,11 +144,13 @@ def search_library(query: str, limit: int = 20) -> list[mc.Track]:
         title="Get Track Details", readOnlyHint=True, destructiveHint=False, idempotentHint=True
     )
 )
-def get_track_details(track_id: int) -> mc.Track:
-    """Get full metadata for a single track by its library-wide id, including
-    genre, year, bpm, date added, play/skip counts, rating, and favorited
-    status — fields the list/search tools omit to stay fast."""
-    return mc.get_track_details(track_id)
+def get_track_details(persistent_id: str) -> mc.Track:
+    """Get full metadata for a single track by its persistent_id (stable
+    across contexts — from search_library, get_current_track, or a
+    playlist listing), including genre, year, bpm, date added, play/skip
+    counts, rating, and favorited status — fields the list/search tools
+    omit to stay fast."""
+    return mc.get_track_details(persistent_id)
 
 
 @mcp.tool(
@@ -177,9 +179,10 @@ def play_playlist(name: str) -> str:
         title="Play Track", readOnlyHint=False, destructiveHint=False, idempotentHint=False
     )
 )
-def play_track(track_id: int) -> str:
-    """Play a specific track by its library-wide id (from search_library results)."""
-    mc.play_track_by_id(track_id)
+def play_track(persistent_id: str) -> str:
+    """Play a specific track by its persistent_id (from search_library, a
+    playlist listing, or get_current_track)."""
+    mc.play_track(persistent_id)
     return "Playing track"
 
 
@@ -188,9 +191,9 @@ def play_track(track_id: int) -> str:
         title="Favorite Track", readOnlyHint=False, destructiveHint=False, idempotentHint=True
     )
 )
-def favorite_track(track_id: int, favorited: bool = True) -> str:
-    """Favorite (or unfavorite) a track by its library-wide id."""
-    mc.favorite_track(track_id, favorited)
+def favorite_track(persistent_id: str, favorited: bool = True) -> str:
+    """Favorite (or unfavorite) a track by its persistent_id."""
+    mc.favorite_track(persistent_id, favorited)
     return f"{'Favorited' if favorited else 'Unfavorited'} track"
 
 
@@ -199,9 +202,9 @@ def favorite_track(track_id: int, favorited: bool = True) -> str:
         title="Rate Track", readOnlyHint=False, destructiveHint=False, idempotentHint=True
     )
 )
-def rate_track(track_id: int, rating: int) -> str:
+def rate_track(persistent_id: str, rating: int) -> str:
     """Set a track's star rating, 0-100 (20 per star, e.g. 100 = 5 stars, 0 = no rating)."""
-    mc.rate_track(track_id, rating)
+    mc.rate_track(persistent_id, rating)
     return f"Rating set to {rating}"
 
 
@@ -222,10 +225,12 @@ def create_playlist(name: str) -> mc.Playlist:
 )
 def list_playlist_tracks(playlist_name: str, offset: int = 0, limit: int = 50) -> list[mc.Track]:
     """List the tracks currently in a playlist, one page at a time (default
-    50). The returned track ids are playlist-scoped (not the same as
-    search_library ids) and are what remove_track_from_playlist expects.
-    For large playlists, prefer search_playlist_tracks to find a specific
-    track instead of paging through the whole thing."""
+    50). Each track has both `id` (playlist-scoped — what
+    remove_track_from_playlist expects) and `persistent_id` (stable across
+    contexts — what favorite_track/rate_track/get_track_details/
+    add_track_to_playlist/play_track expect). For large playlists, prefer
+    search_playlist_tracks to find a specific track instead of paging
+    through the whole thing."""
     return mc.list_playlist_tracks(playlist_name, offset, limit)
 
 
@@ -247,9 +252,9 @@ def search_playlist_tracks(playlist_name: str, query: str, limit: int = 20) -> l
         title="Add Track to Playlist", readOnlyHint=False, destructiveHint=False, idempotentHint=False
     )
 )
-def add_track_to_playlist(playlist_name: str, track_id: int) -> str:
-    """Add a track (by library-wide id from search_library) to an existing playlist."""
-    mc.add_track_to_playlist(playlist_name, track_id)
+def add_track_to_playlist(playlist_name: str, persistent_id: str) -> str:
+    """Add a track (by persistent_id from search_library) to an existing playlist."""
+    mc.add_track_to_playlist(playlist_name, persistent_id)
     return f"Added track to '{playlist_name}'"
 
 

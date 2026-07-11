@@ -31,7 +31,10 @@ const app = Application("Music");
 const result = { player_state: app.playerState() };
 try {
     const t = app.currentTrack();
-    result.track = { id: t.id(), name: t.name(), artist: t.artist(), album: t.album() };
+    result.track = {
+        id: t.id(), name: t.name(), artist: t.artist(), album: t.album(),
+        persistent_id: t.persistentID()
+    };
     result.duration = t.duration();
     result.player_position = app.playerPosition();
 } catch (e) {}
@@ -51,7 +54,10 @@ for (const field of ["name", "artist", "album"]) {{
         const id = t.id();
         if (seen.has(id)) continue;
         seen.add(id);
-        results.push({{ id, name: t.name(), artist: t.artist(), album: t.album() }});
+        results.push({{
+            id, name: t.name(), artist: t.artist(), album: t.album(),
+            persistent_id: t.persistentID()
+        }});
         if (results.length >= {limit}) break outer;
     }}
 }}
@@ -74,9 +80,9 @@ if (matches.length === 0) {{
 }}
 """
 
-_PLAY_TRACK_BY_ID = """
+_PLAY_TRACK = """
 const app = Application("Music");
-const matches = app.tracks.whose({{id: {track_id}}})();
+const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
 if (matches.length === 0) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
@@ -98,7 +104,10 @@ if (playlists.length === 0) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
     const page = playlists[0].tracks().slice({offset}, {offset} + {limit});
-    const tracks = page.map(t => ({{ id: t.id(), name: t.name(), artist: t.artist(), album: t.album() }}));
+    const tracks = page.map(t => ({{
+        id: t.id(), name: t.name(), artist: t.artist(), album: t.album(),
+        persistent_id: t.persistentID()
+    }}));
     JSON.stringify({{ok: true, tracks}});
 }}
 """
@@ -120,7 +129,10 @@ if (playlists.length === 0) {{
             const id = t.id();
             if (seen.has(id)) continue;
             seen.add(id);
-            results.push({{ id, name: t.name(), artist: t.artist(), album: t.album() }});
+            results.push({{
+                id, name: t.name(), artist: t.artist(), album: t.album(),
+                persistent_id: t.persistentID()
+            }});
             if (results.length >= {limit}) break outer;
         }}
     }}
@@ -130,7 +142,7 @@ if (playlists.length === 0) {{
 
 _ADD_TRACK_TO_PLAYLIST = """
 const app = Application("Music");
-const tracks = app.tracks.whose({{id: {track_id}}})();
+const tracks = app.tracks.whose({{persistentID: {persistent_id}}})();
 const playlists = app.playlists.whose({{name: {playlist_name}}})();
 if (tracks.length === 0) {{
     JSON.stringify({{ok: false, error: "track not found"}});
@@ -165,7 +177,7 @@ _SET_REPEAT = 'Application("Music").songRepeat = {mode}; void 0;'
 
 _FAVORITE_TRACK = """
 const app = Application("Music");
-const matches = app.tracks.whose({{id: {track_id}}})();
+const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
 if (matches.length === 0) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
@@ -176,7 +188,7 @@ if (matches.length === 0) {{
 
 _RATE_TRACK = """
 const app = Application("Music");
-const matches = app.tracks.whose({{id: {track_id}}})();
+const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
 if (matches.length === 0) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
@@ -187,13 +199,14 @@ if (matches.length === 0) {{
 
 _GET_TRACK_DETAILS = """
 const app = Application("Music");
-const matches = app.tracks.whose({{id: {track_id}}})();
+const matches = app.tracks.whose({{persistentID: {persistent_id}}})();
 if (matches.length === 0) {{
     JSON.stringify({{ok: false, error: "track not found"}});
 }} else {{
     const t = matches[0];
     JSON.stringify({{ok: true, track: {{
         id: t.id(), name: t.name(), artist: t.artist(), album: t.album(),
+        persistent_id: t.persistentID(),
         genre: t.genre(), year: t.year(), bpm: t.bpm(),
         date_added: t.dateAdded(), played_count: t.playedCount(),
         played_date: t.playedDate(), skipped_count: t.skippedCount(),
@@ -276,8 +289,8 @@ def play_playlist(name: str) -> None:
     _raise_if_not_ok(_run_jxa(script))
 
 
-def play_track_by_id(track_id: int) -> None:
-    script = _PLAY_TRACK_BY_ID.format(track_id=json.dumps(track_id))
+def play_track(persistent_id: str) -> None:
+    script = _PLAY_TRACK.format(persistent_id=json.dumps(persistent_id))
     _raise_if_not_ok(_run_jxa(script))
 
 
@@ -313,18 +326,19 @@ def search_playlist_tracks(playlist_name: str, query: str, limit: int = 20) -> l
     return [Track(**t) for t in result["tracks"]]
 
 
-def add_track_to_playlist(playlist_name: str, track_id: int) -> None:
-    # track_id is a library-wide id (e.g. from search_library).
+def add_track_to_playlist(playlist_name: str, persistent_id: str) -> None:
     script = _ADD_TRACK_TO_PLAYLIST.format(
-        playlist_name=json.dumps(playlist_name), track_id=json.dumps(track_id)
+        playlist_name=json.dumps(playlist_name), persistent_id=json.dumps(persistent_id)
     )
     _raise_if_not_ok(_run_jxa(script))
 
 
 def remove_track_from_playlist(playlist_name: str, track_id: int) -> None:
-    # track_id here is playlist-scoped, not the library-wide id — Music.app
-    # assigns a new id when a track is duplicated into a playlist, so this
-    # must come from list_playlist_tracks, not search_library.
+    # Deliberately uses the playlist-scoped `id`, not `persistent_id`: if the
+    # same song appears twice in a playlist, both copies share one
+    # persistent_id, which can't tell them apart. `id` (from
+    # list_playlist_tracks/search_playlist_tracks) identifies one specific
+    # occurrence, which is what removal needs.
     script = _REMOVE_TRACK_FROM_PLAYLIST.format(
         playlist_name=json.dumps(playlist_name), track_id=json.dumps(track_id)
     )
@@ -353,19 +367,21 @@ def set_repeat(mode: str) -> None:
     _run_jxa(_SET_REPEAT.format(mode=json.dumps(mode)))
 
 
-def favorite_track(track_id: int, favorited: bool = True) -> None:
-    script = _FAVORITE_TRACK.format(track_id=json.dumps(track_id), favorited=json.dumps(bool(favorited)))
+def favorite_track(persistent_id: str, favorited: bool = True) -> None:
+    script = _FAVORITE_TRACK.format(
+        persistent_id=json.dumps(persistent_id), favorited=json.dumps(bool(favorited))
+    )
     _raise_if_not_ok(_run_jxa(script))
 
 
-def rate_track(track_id: int, rating: int) -> None:
+def rate_track(persistent_id: str, rating: int) -> None:
     rating = max(0, min(100, int(rating)))
-    script = _RATE_TRACK.format(track_id=json.dumps(track_id), rating=json.dumps(rating))
+    script = _RATE_TRACK.format(persistent_id=json.dumps(persistent_id), rating=json.dumps(rating))
     _raise_if_not_ok(_run_jxa(script))
 
 
-def get_track_details(track_id: int) -> Track:
-    script = _GET_TRACK_DETAILS.format(track_id=json.dumps(track_id))
+def get_track_details(persistent_id: str) -> Track:
+    script = _GET_TRACK_DETAILS.format(persistent_id=json.dumps(persistent_id))
     result = _run_jxa(script)
     _raise_if_not_ok(result)
     return Track(**result["track"])
