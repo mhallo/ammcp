@@ -30,6 +30,7 @@ class TestToolAnnotations:
             "search_library",
             "list_playlists",
             "list_playlist_tracks",
+            "search_playlist_tracks",
         }
 
 

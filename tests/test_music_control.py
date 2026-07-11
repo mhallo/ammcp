@@ -131,6 +131,28 @@ class TestPlaylists:
         with pytest.raises(MusicControlError, match="playlist not found"):
             mc.list_playlist_tracks("Nope")
 
+    def test_list_playlist_tracks_sends_offset_and_limit(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": True, "tracks": []}))
+        mc.list_playlist_tracks("Faves", offset=100, limit=25)
+        _, kwargs = mock_run.call_args
+        assert ".slice(100, 100 + 25)" in kwargs["input"]
+
+    def test_list_playlist_tracks_clamps_offset_and_limit(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": True, "tracks": []}))
+        mc.list_playlist_tracks("Faves", offset=-5, limit=0)
+        _, kwargs = mock_run.call_args
+        assert ".slice(0, 0 + 1)" in kwargs["input"]
+
+    def test_search_playlist_tracks(self, mock_run, cp):
+        payload = {"ok": True, "tracks": [{"id": 9, "name": "T", "artist": "A", "album": "Al"}]}
+        mock_run.return_value = cp(stdout=json.dumps(payload))
+        assert mc.search_playlist_tracks("Faves", "t") == [mc.Track(id=9, name="T", artist="A", album="Al")]
+
+    def test_search_playlist_tracks_not_found_raises(self, mock_run, cp):
+        mock_run.return_value = cp(stdout=json.dumps({"ok": False, "error": "playlist not found"}))
+        with pytest.raises(MusicControlError, match="playlist not found"):
+            mc.search_playlist_tracks("Nope", "t")
+
     def test_add_track_to_playlist_success(self, mock_run, cp):
         mock_run.return_value = cp(stdout=json.dumps({"ok": True}))
         mc.add_track_to_playlist("Faves", 1)

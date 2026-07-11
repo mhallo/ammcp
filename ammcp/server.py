@@ -152,11 +152,26 @@ def create_playlist(name: str) -> mc.Playlist:
         title="List Playlist Tracks", readOnlyHint=True, destructiveHint=False, idempotentHint=True
     )
 )
-def list_playlist_tracks(playlist_name: str) -> list[mc.Track]:
-    """List the tracks currently in a playlist. The returned track ids are
-    playlist-scoped (not the same as search_library ids) and are what
-    remove_track_from_playlist expects."""
-    return mc.list_playlist_tracks(playlist_name)
+def list_playlist_tracks(playlist_name: str, offset: int = 0, limit: int = 50) -> list[mc.Track]:
+    """List the tracks currently in a playlist, one page at a time (default
+    50). The returned track ids are playlist-scoped (not the same as
+    search_library ids) and are what remove_track_from_playlist expects.
+    For large playlists, prefer search_playlist_tracks to find a specific
+    track instead of paging through the whole thing."""
+    return mc.list_playlist_tracks(playlist_name, offset, limit)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Search Playlist Tracks", readOnlyHint=True, destructiveHint=False, idempotentHint=True
+    )
+)
+def search_playlist_tracks(playlist_name: str, query: str, limit: int = 20) -> list[mc.Track]:
+    """Search within a single playlist by track name, artist, or album.
+    Fast even on very large playlists (thousands of tracks) since the
+    filtering happens inside Music.app rather than by listing every track.
+    Prefer this over list_playlist_tracks when looking for a specific song."""
+    return mc.search_playlist_tracks(playlist_name, query, limit)
 
 
 @mcp.tool(

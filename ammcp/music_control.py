@@ -93,8 +93,34 @@ const playlists = app.playlists.whose({{name: {playlist_name}}})();
 if (playlists.length === 0) {{
     JSON.stringify({{ok: false, error: "playlist not found"}});
 }} else {{
-    const tracks = playlists[0].tracks().map(t => ({{ id: t.id(), name: t.name(), artist: t.artist(), album: t.album() }}));
+    const page = playlists[0].tracks().slice({offset}, {offset} + {limit});
+    const tracks = page.map(t => ({{ id: t.id(), name: t.name(), artist: t.artist(), album: t.album() }}));
     JSON.stringify({{ok: true, tracks}});
+}}
+"""
+
+_SEARCH_PLAYLIST_TRACKS = """
+const app = Application("Music");
+const playlists = app.playlists.whose({{name: {playlist_name}}})();
+if (playlists.length === 0) {{
+    JSON.stringify({{ok: false, error: "playlist not found"}});
+}} else {{
+    const q = {query};
+    const seen = new Set();
+    const results = [];
+    outer:
+    for (const field of ["name", "artist", "album"]) {{
+        const clause = {{}};
+        clause[field] = {{_contains: q}};
+        for (const t of playlists[0].tracks.whose(clause)()) {{
+            const id = t.id();
+            if (seen.has(id)) continue;
+            seen.add(id);
+            results.push({{ id, name: t.name(), artist: t.artist(), album: t.album() }});
+            if (results.length >= {limit}) break outer;
+        }}
+    }}
+    JSON.stringify({{ok: true, tracks: results}});
 }}
 """
 
@@ -212,8 +238,28 @@ def create_playlist(name: str) -> Playlist:
     return Playlist(**_run_jxa(script))
 
 
-def list_playlist_tracks(playlist_name: str) -> list[Track]:
-    script = _LIST_PLAYLIST_TRACKS.format(playlist_name=json.dumps(playlist_name))
+def list_playlist_tracks(playlist_name: str, offset: int = 0, limit: int = 50) -> list[Track]:
+    # Property access (name/artist/album) costs one Apple Event round-trip
+    # per track, so this is paginated to stay well under the osascript
+    # timeout on large playlists. Prefer search_playlist_tracks when you're
+    # looking for a specific track — `whose()` filtering runs server-side
+    # and is fast regardless of playlist size.
+    script = _LIST_PLAYLIST_TRACKS.format(
+        playlist_name=json.dumps(playlist_name),
+        offset=json.dumps(max(0, int(offset))),
+        limit=json.dumps(max(1, int(limit))),
+    )
+    result = _run_jxa(script)
+    _raise_if_not_ok(result)
+    return [Track(**t) for t in result["tracks"]]
+
+
+def search_playlist_tracks(playlist_name: str, query: str, limit: int = 20) -> list[Track]:
+    script = _SEARCH_PLAYLIST_TRACKS.format(
+        playlist_name=json.dumps(playlist_name),
+        query=json.dumps(query),
+        limit=json.dumps(max(1, int(limit))),
+    )
     result = _run_jxa(script)
     _raise_if_not_ok(result)
     return [Track(**t) for t in result["tracks"]]
