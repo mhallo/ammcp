@@ -32,6 +32,15 @@ The first time this runs, macOS will prompt for **Automation** permission — th
 - `add_track_to_playlist(playlist_name, track_id)` — `track_id` from `search_library`
 - `remove_track_from_playlist(playlist_name, track_id)` — `track_id` from `list_playlist_tracks`. **Destructive and irreversible.** Marked `destructiveHint: true` in its tool annotations, and always asks the connecting client to confirm via MCP elicitation before removing anything — if the client doesn't support elicitation, the call will fail rather than silently deleting.
 
+## Tests
+
+```bash
+uv sync --group dev
+uv run pytest
+```
+
+Tests mock `subprocess`/the MCP transport, so they don't touch your real Music.app or library.
+
 ## Use with Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
